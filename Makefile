@@ -12,8 +12,8 @@ LDFLAGS = -L nr_agent_sdk_base_dir/lib/   -l  newrelic-transaction  -l  newrelic
 help:
 	echo "Makefile help"	
 	echo -e "Possible make targets:\n"	
-	echo "    make test_newrelic_instrum_api"	
-	echo -e "         Build the test program with the embedded NewRelic instrumentation.\n"	
+	echo "    make perf_record_newrelic"	
+	echo -e "         Build the wrapper program to pipe from the Linux Performance Counters to NewRelic\n"	
 	echo "    make run_a_test"	
 	echo -e "         Build the test program -if necessary- and run it (Requires before that the environment variable NEW_RELIC_LICENSE_KEY had been externally set and exported"	
 	echo -e "         like in an: 'export NEW_RELIC_LICENSE_KEY=my_NewRelic_License_KEy' in sh/bash, before running 'make run_a_test'.)\n"	
@@ -28,7 +28,7 @@ help:
 perf_record_newrelic: perf_record_newrelic.c
 	cp perf_record_newrelic.c $(BUILD_DIR)/
 	cd $(BUILD_DIR) && \
-	   $(CC) $(CFLAGS)  -o  perf_record_newrelic   perf_record_newrelic.c  $(LDFLAGS) 
+	   $(CC) $(CFLAGS)  -o  perf_record_newrelic   perf_record_newrelic.c  $(LDFLAGS)
 
 
 
