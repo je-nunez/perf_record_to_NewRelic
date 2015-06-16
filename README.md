@@ -10,11 +10,43 @@ This project is a *work in progress*. The implementation is *incomplete* and sub
 
 This is the first version of this document.
 
+# Current Issues
+
+It seems that the current NewRelic Agent SDK,
+
+      http://download.newrelic.com/agent_sdk/nr_agent_sdk-v0.16.2.0-beta.x86_64.tar.gz
+
+has its library
+
+      libnewrelic-collector-client.so
+
+linked to
+
+      $ ldd libnewrelic-collector-client.so
+
+           libssl.so.1.0.0 => /lib64/libssl.so.1.0.0
+           libcrypto.so.1.0.0 => /lib64/libcrypto.so.1.0.0
+
+whereas the previous version, `v0.16.1.0-beta`, active till four days ago, linked to
+
+           libssl.so.10 => /lib64/libssl.so.10 (0x00007f100ac5c000)
+           libcrypto.so.10 => /lib64/libcrypto.so.10 (0x00007f100a875000)
+
+In some Linux systems (RedHat-derived, Fedora, etc), `/lib64/libssl.so.1.0.0` and `/lib64/libcrypto.so.1.0.0` don't need to exist (although the old `/lib64/libssl.so.10` and `/lib64/libcrypto.so.10` may). This causes that a shared library is not found at runtime, so the program fails. If you experience this issue that either of `libssl.so.1.0.0` or `libcrypto.so.1.0.0` shared-library is not found, then to solve this issue for the time being,
+
+           # cd /lib64/
+           # ln -s  libssl.so.1.0.[0-9][a-z]  libssl.so.1.0.0
+           # ln -s  libcrypto.so.1.0.[0-9][a-z] libcrypto.so.1.0.0
+
 # Description
 
 This is an example of how to send Linux Performance Counters (more exactly `perf record` and `perf report`) to NewRelic, via its Agent SDK.
 
 This is the first version of this program. The current way of calling it is:
+
+    # optional to find NewRelic shared-libraries for the Agent embedded mode
+    NEW_RELIC_SDK_LIBS=~/src/newrelic_agent_sdk_installation/nr_agent_sdk_base_dir/lib/
+    export  LD_LIBRARY_PATH="$LD_LIBRARY_PATH:$NEW_RELIC_SDK_LIBS"
 
     perf_record_newrelic  <NewRelic_license_key> \
                           [<options-to-perf-record>] \
