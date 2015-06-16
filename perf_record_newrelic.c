@@ -83,7 +83,7 @@ main(int argc, char** argv)
 
     newrelic_init(newrelic_license_key,
                   "Linux Performance Counters to NewRelic", "C", "4.8");
-    // newrelic_enable_instrumentation(0);  /* 0 is enable */
+    // newrelic_enable_instrumentation(1);  /* 1 is enable */
 
     newrelic_perf_counters_wrapper(argc-2, argv+2);
 
