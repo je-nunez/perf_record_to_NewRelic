@@ -28,7 +28,7 @@ help:
 perf_record_newrelic: perf_record_newrelic.c
 	cp perf_record_newrelic.c $(BUILD_DIR)/
 	cd $(BUILD_DIR) && \
-	   $(CC) $(CFLAGS) $(LDFLAGS) -o  perf_record_newrelic   perf_record_newrelic.c
+	   $(CC) $(CFLAGS)  -o  perf_record_newrelic   perf_record_newrelic.c  $(LDFLAGS) 
 
 
 
@@ -39,7 +39,7 @@ run_a_test: perf_record_newrelic
 
 
 install_newrelic_agent_sdk:
-	-download_NewRelic_Agent_SDK.sh
+	-./download_NewRelic_Agent_SDK.sh
 
 
 .PHONY : clean
