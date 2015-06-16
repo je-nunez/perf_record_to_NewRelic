@@ -1,6 +1,6 @@
 # perf_record_NewRelic_wrapper
 
-A Linux Performance Counters to NewRelic wrapper in C, using `perf record` and `perf report` to relying to the NewRelic via its Agent SDK (embedded mode).
+A Linux Performance Counters to NewRelic wrapper in C, using `perf record` and `perf report` to rely to the NewRelic via its Agent SDK (embedded mode).
 
 ( For an example of the overall structure instrumenting your C application with the NewRelic Agent SDK (embedded mode), please refer to the previous project, https://github.com/je-nunez/NewRelic_instrumentation_SDK )
 
@@ -12,7 +12,7 @@ This is the first version of this document.
 
 # Description
 
-This is an example of how to send Linux Performance Counters (more exactly "perf record" and "perf report") to NewRelic, via its Agent SDK.
+This is an example of how to send Linux Performance Counters (more exactly `perf record` and `perf report`) to NewRelic, via its Agent SDK.
 
 This is the first version of this program. The current way of calling it is:
 
