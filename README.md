@@ -98,11 +98,11 @@ and this one no longer exists, instead this new version:
     so you will need to install them in your system.
     E.g., for Debian-oriented systems:
 
-        apt-get install  libss  libnss3
+        apt-get install  libssl  libnss3
 
     and for RedHat-oriented systems:
 
-        yum install  openssl-libs  nss
+        yum install  openssl  openssl-libs  nss
 
     Other shared-libraries may be as well necessary.)
 
