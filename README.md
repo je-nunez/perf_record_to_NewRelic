@@ -48,6 +48,7 @@ This is the first version of this program. The current way of calling it is:
     NEW_RELIC_SDK_LIBS=~/src/newrelic_agent_sdk_installation/nr_agent_sdk_base_dir/lib/
     export  LD_LIBRARY_PATH="$LD_LIBRARY_PATH:$NEW_RELIC_SDK_LIBS"
 
+
     perf_record_newrelic  <NewRelic_license_key> \
                           [<options-to-perf-record>] \
                           <program> <prg-args> ...
