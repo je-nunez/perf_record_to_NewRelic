@@ -83,7 +83,7 @@ main(int argc, char** argv)
 
     newrelic_init(newrelic_license_key,
                   "Linux Performance Counters to NewRelic", "C", "4.8");
-    // newrelic_enable_instrumentation(1);  /* 1 is enable */
+    // newrelic_enable_instrumentation(0);  /* 0 is enable */
 
     newrelic_perf_counters_wrapper(argc-2, argv+2);
 
@@ -180,6 +180,31 @@ newrelic_perf_counters_wrapper(int program_argc, char * program_argv[])
                         ret_code);
         }
     }
+ 
+    /* 
+    if (program_exit_code == 0) { // Is it right this condition == 0 ?
+        // Optional: clean-up temporary perf.data file 
+       
+        struct stat buf;
+        if (stat("./perf.data", &buf) == 0) {
+           // There could be a race condition with another program that does
+           // a `perf` command on this same "perf.data", or a newer one. Even
+           // looking at the "perf.data" header to see if it is about the 
+           // command we executed can't give us security to avoid the race
+           // condition, because another process can be doing a `perf record`
+           // with the same command line writing to this same "perf.data" file
+
+           time_t current_time = time(NULL);
+           if (current_time - buf.st_mtime < 30) {
+               // "perf.data" was modified less than 30 seconds ago: it's ours
+               return_code = unlink("./perf.data");
+               if (return_code != 0)
+                   fprintf(stderr, "ERROR: unlink(%s) failed: error code: %d\n",
+                           "./perf.data", return_code);
+           }
+        }
+    }
+    */
 
     /* Finnish the NewRelic transaction */
     fprintf(stderr, "DEBUG: about to call newrelic_transaction_end()\n");
