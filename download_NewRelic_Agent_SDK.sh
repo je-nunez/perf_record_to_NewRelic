@@ -14,7 +14,7 @@ echo  -e "\n------ Extracting $BUILD_DIR/nr_agent_sdk.tar.gz ...\n"
 cd $BUILD_DIR && \
    tar  -xzf  nr_agent_sdk.tar.gz
 
-nr_agent_base_directory=$( find $(pwd) -maxdepth 1 -mindepth 1 -type d )
+nr_agent_base_directory=$( find $(pwd) -maxdepth 1 -mindepth 1 -type d -cmin -5 )
 
 echo $nr_agent_base_directory
 
