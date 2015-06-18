@@ -58,13 +58,15 @@ newrelic_perf_counters_wrapper(int program_argc, char * program_argv[]);
 
 
 int
-execute_perf_record_and_program(int program_argc, char * program_argv[],
-                                 struct timespec * duration);
+execute_perf_record_and_program(int in_program_argc, char * in_program_argv[],
+                                struct timespec * out_duration,
+                                char * out_perf_data_file);
 
 
 int
-upload_perf_report_to_NewRelic(long newrelic_transaction,
-                               const struct timespec * prog_exec_duration);
+upload_perf_report_to_NewRelic(char * in_perf_data_fname,
+                               const struct timespec * prog_exec_duration,
+                               long newrelic_transaction);
 
 
 int
@@ -146,10 +148,14 @@ newrelic_perf_counters_wrapper(int program_argc, char * program_argv[])
                         "returned %ld\n",newr_segm_external_perf_record);
 
 
+    char temp_perf_data_file[PATH_MAX];
+    memset(temp_perf_data_file, 0, sizeof temp_perf_data_file);
     struct timespec  program_exec_duration;
     int program_exit_code;
     program_exit_code = execute_perf_record_and_program(program_argc,
-                                     program_argv, &program_exec_duration);
+                                                    program_argv,
+                                                    &program_exec_duration,
+                                                    temp_perf_data_file);
 
     /* end this NewRelic segment */
     if (newr_segm_external_perf_record >= 0) {
@@ -169,8 +175,9 @@ newrelic_perf_counters_wrapper(int program_argc, char * program_argv[])
             fprintf(stderr, "ERROR: newrelic_segment_external_begin() "
                              "returned %ld\n", newr_segm_external_perf_report);
 
-        upload_perf_report_to_NewRelic(newrelic_transxtion_id,
-                                       &program_exec_duration);
+        upload_perf_report_to_NewRelic(temp_perf_data_file,
+                                       &program_exec_duration,
+                                       newrelic_transxtion_id);
 
         if (newr_segm_external_perf_report >= 0) {
             int ret_code = newrelic_segment_end(newrelic_transxtion_id,
@@ -180,31 +187,25 @@ newrelic_perf_counters_wrapper(int program_argc, char * program_argv[])
                         ret_code);
         }
     }
- 
-    /* 
-    if (program_exit_code == 0) { // Is it right this condition == 0 ?
-        // Optional: clean-up temporary perf.data file 
-       
-        struct stat buf;
-        if (stat("./perf.data", &buf) == 0) {
-           // There could be a race condition with another program that does
-           // a `perf` command on this same "perf.data", or a newer one. Even
-           // looking at the "perf.data" header to see if it is about the 
-           // command we executed can't give us security to avoid the race
-           // condition, because another process can be doing a `perf record`
-           // with the same command line writing to this same "perf.data" file
 
-           time_t current_time = time(NULL);
-           if (current_time - buf.st_mtime < 30) {
-               // "perf.data" was modified less than 30 seconds ago: it's ours
-               return_code = unlink("./perf.data");
-               if (return_code != 0)
-                   fprintf(stderr, "ERROR: unlink(%s) failed: error code: %d\n",
-                           "./perf.data", return_code);
-           }
-        }
+    struct stat buf;
+    if (stat(temp_perf_data_file, &buf) == 0) {
+       // There could be a race condition with another program that does
+       // a `perf` command on this same "perf.data" temp file, or a newer one.
+       // Even looking at the "perf.data" header to see if it is about the
+       // command we executed can't give us security to avoid the race
+       // condition, because another process can be doing a `perf record`
+       // with the same command line writing to this same "perf.data" file
+
+       time_t current_time = time(NULL);
+       if (current_time - buf.st_mtime < 30) {
+           // "perf.data" was modified less than 30 seconds ago: it's ours
+           return_code = unlink(temp_perf_data_file);
+           if (return_code != 0)
+               fprintf(stderr, "ERROR: unlink(%s) failed: error code: %d\n",
+                       temp_perf_data_file, return_code);
+       }
     }
-    */
 
     /* Finnish the NewRelic transaction */
     fprintf(stderr, "DEBUG: about to call newrelic_transaction_end()\n");
@@ -215,21 +216,70 @@ newrelic_perf_counters_wrapper(int program_argc, char * program_argv[])
 }
 
 
+static int
+create_a_temp_filename(char * out_new_temp_fname)
+{
+    pid_t my_pid = getpid();
+    time_t curr_time = time(NULL);
+
+    /* We need to use a random number generator that be
+     * re-entrant, because the embedded New Relic collector
+     * agent in running in another thread concurrent to
+     * this main thread, and we don't know if that thread
+     * -which relies on SSL- uses a random number generator
+     * or not. It is very probable.
+     */
+
+     struct drand48_data random_state;
+     memset(&random_state, 0, sizeof(struct drand48_data));
+
+     long rand_seed = (long)(17*my_pid + curr_time);
+     srand48_r(rand_seed, &random_state);
+
+     /* Try up to ten times to generate a random file name.
+      * This is similar to the tempnam() re-entrant function
+      */
+     int i;
+     for (i=0; i<10; i++) {
+         long a_rand_number;
+         lrand48_r(&random_state, &a_rand_number);
+         snprintf(out_new_temp_fname, PATH_MAX,
+                 "/tmp/perf_%ld_%ld_%ld.dat", (long)my_pid,
+                 (long)curr_time, a_rand_number);
+          struct stat buf;
+          if (stat(out_new_temp_fname, &buf) != 0)
+              return 1;
+    }
+
+    return 0;
+}
+
 int
-execute_perf_record_and_program(int program_argc, char * program_argv[],
-                                 struct timespec * duration)
+execute_perf_record_and_program(int in_program_argc, char * in_program_argv[],
+                                struct timespec * out_duration,
+                                char * out_perf_data_file)
 {
     int status;
     char ** new_argv;
-    new_argv = calloc(program_argc+3, sizeof (char *));
+    new_argv = calloc(in_program_argc+4, sizeof (char *));
     if (!new_argv) {
         perror("calloc");
         return -1;
     }
 
-    /* Build the new argv[] to call `perf record <program_argv[]> */
+    status = create_a_temp_filename(out_perf_data_file);
+    if (status == 0) {
+        fprintf(stderr,
+                "ERROR: couldn't find a temp filename for perf.data file\n");
+        return -2;
+    }
+
+    /* Build the new argv[] to call `perf record <in_program_argv[]> */
     new_argv[0] = "perf";
     new_argv[1] = "record";
+    char output_arg[PATH_MAX+16];
+    snprintf(output_arg, sizeof output_arg, "--output=%s", out_perf_data_file);
+    new_argv[2] = output_arg;
     /* Note that in the following argv copy, since "perf record" was
      * already inserted in the new_argv[], then the first argvs in
      * this copy are arguments that are passed directly as-is to
@@ -242,23 +292,23 @@ execute_perf_record_and_program(int program_argc, char * program_argv[],
      * NewRelic always see the perf.data file in the current directory
      * -ie., the "perf report" feed to NewRelic
      */
-    int src_idx=0, dest_idx=2, still_in_perf_record_options=1;
-    while (src_idx < program_argc) {
+    int src_idx=0, dest_idx=3, still_in_perf_record_options=1;
+    while (src_idx < in_program_argc) {
         /* Sanitize */
         if (still_in_perf_record_options == 1 &&
-            strncmp(program_argv[src_idx], "--output=", 9) == 0) {
-            fprintf(stderr, "Ignoring option %s\n", program_argv[src_idx]);
+            strncmp(in_program_argv[src_idx], "--output=", 9) == 0) {
+            fprintf(stderr, "Ignoring option %s\n", in_program_argv[src_idx]);
             src_idx++;
         } else if (still_in_perf_record_options == 1 &&
-                 strncmp(program_argv[src_idx], "-o", 2) == 0) {
-             fprintf(stderr, "Ignoring option %s\n", program_argv[src_idx]);
-             if (program_argv[src_idx][2] == '\0')
+                 strncmp(in_program_argv[src_idx], "-o", 2) == 0) {
+             fprintf(stderr, "Ignoring option %s\n", in_program_argv[src_idx]);
+             if (in_program_argv[src_idx][2] == '\0')
                 src_idx += 2; /* fmt: "-o <file>" */
              else
                 src_idx++; /* fmt: "-o<file>" without space */
         } else {
-             new_argv[dest_idx] = program_argv[src_idx];
-             if (program_argv[src_idx] && program_argv[src_idx][0] != '-')
+             new_argv[dest_idx] = in_program_argv[src_idx];
+             if (in_program_argv[src_idx] && in_program_argv[src_idx][0] != '-')
                  still_in_perf_record_options = 0;
              dest_idx++;
              src_idx++;
@@ -286,11 +336,11 @@ execute_perf_record_and_program(int program_argc, char * program_argv[],
 
     clock_gettime(CLOCK_REALTIME, &end_time);
 
-    duration->tv_sec = end_time.tv_sec - start_time.tv_sec;
-    duration->tv_nsec = end_time.tv_nsec - start_time.tv_nsec;
-    if (duration->tv_nsec < 0) {
-        duration->tv_sec--;
-        duration->tv_nsec += 1000000000;
+    out_duration->tv_sec = end_time.tv_sec - start_time.tv_sec;
+    out_duration->tv_nsec = end_time.tv_nsec - start_time.tv_nsec;
+    if (out_duration->tv_nsec < 0) {
+        out_duration->tv_sec--;
+        out_duration->tv_nsec += 1000000000;
     }
 
     return WEXITSTATUS(status);
@@ -298,12 +348,17 @@ execute_perf_record_and_program(int program_argc, char * program_argv[],
 
 
 int
-upload_perf_report_to_NewRelic(long newrelic_transaction,
-                               const struct timespec * prog_exec_duration)
+upload_perf_report_to_NewRelic(char * in_perf_data_fname,
+                               const struct timespec * prog_exec_duration,
+                               long newrelic_transaction)
 {
     FILE * perf_report_pipe;
 
-    perf_report_pipe = popen("perf report", "r");
+    char perf_report_cmd[PATH_MAX+64];
+    snprintf(perf_report_cmd, sizeof perf_report_cmd,
+             "perf report --input=%s", in_perf_data_fname);
+
+    perf_report_pipe = popen(perf_report_cmd, "r");
     if (!perf_report_pipe) {
         perror("popen");
         return -1;
