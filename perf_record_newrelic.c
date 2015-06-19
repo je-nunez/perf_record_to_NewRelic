@@ -93,13 +93,13 @@ main(int argc, char** argv)
 }
 
 
-void     (*newrelic_agent_sighandler)(int);
+void     (*newrelic_agent_sighandler)(int) = NULL;
 
 volatile sig_atomic_t interrupt_execution = 0;
 
 void signal_handler(int sig)
-{ 
-    interrupt_execution = 1; 
+{
+    interrupt_execution = 1;
     if (newrelic_agent_sighandler)
         (*newrelic_agent_sighandler)(sig);
 }
@@ -179,13 +179,13 @@ newrelic_perf_counters_wrapper(int program_argc, char * program_argv[])
     struct timespec  program_exec_duration;
     int program_exit_code;
     struct stat buf;
-    if (interrupt_execution == 0) 
+    if (interrupt_execution == 0)
         program_exit_code = execute_perf_record_and_program(program_argc,
                                                         program_argv,
                                                         &program_exec_duration,
                                                         temp_perf_data_file);
 
-    if (interrupt_execution != 0) 
+    if (interrupt_execution != 0)
         goto goto_point_delete_temp_perf_data_file;
 
     /* end this NewRelic segment */
