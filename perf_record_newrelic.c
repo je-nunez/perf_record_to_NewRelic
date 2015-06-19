@@ -92,6 +92,19 @@ main(int argc, char** argv)
     return 0;
 }
 
+
+void     (*newrelic_agent_sighandler)(int);
+
+volatile sig_atomic_t interrupt_execution = 0;
+
+void signal_handler(int sig)
+{ 
+    interrupt_execution = 1; 
+    if (newrelic_agent_sighandler)
+        (*newrelic_agent_sighandler)(sig);
+}
+
+
 void
 newrelic_perf_counters_wrapper(int program_argc, char * program_argv[])
 {
@@ -147,15 +160,33 @@ newrelic_perf_counters_wrapper(int program_argc, char * program_argv[])
         fprintf(stderr, "ERROR: newrelic_segment_external_begin() "
                         "returned %ld\n",newr_segm_external_perf_record);
 
+    /* Set signal handler */
+    /* see if NewRelic installed a signal-handler for INT in our thread */
+    struct sigaction newrelic_signal_handler;
 
+    sigaction(SIGINT, NULL, &newrelic_signal_handler);
+    newrelic_agent_sighandler = newrelic_signal_handler.sa_handler;
+
+    struct sigaction our_signal_handler;
+    memset(&our_signal_handler, 0, sizeof(our_signal_handler));
+    our_signal_handler.sa_handler = signal_handler;
+    sigemptyset(&our_signal_handler.sa_mask);
+    sigaction(SIGINT, &our_signal_handler, NULL);
+
+    /* Run "perf record" */
     char temp_perf_data_file[PATH_MAX];
     memset(temp_perf_data_file, 0, sizeof temp_perf_data_file);
     struct timespec  program_exec_duration;
     int program_exit_code;
-    program_exit_code = execute_perf_record_and_program(program_argc,
-                                                    program_argv,
-                                                    &program_exec_duration,
-                                                    temp_perf_data_file);
+    struct stat buf;
+    if (interrupt_execution == 0) 
+        program_exit_code = execute_perf_record_and_program(program_argc,
+                                                        program_argv,
+                                                        &program_exec_duration,
+                                                        temp_perf_data_file);
+
+    if (interrupt_execution != 0) 
+        goto goto_point_delete_temp_perf_data_file;
 
     /* end this NewRelic segment */
     if (newr_segm_external_perf_record >= 0) {
@@ -166,7 +197,7 @@ newrelic_perf_counters_wrapper(int program_argc, char * program_argv[])
                     ret_code);
     }
 
-    if (program_exit_code >= 0) {
+    if (interrupt_execution == 0 && program_exit_code >= 0) {
         long newr_segm_external_perf_report =
                 newrelic_segment_external_begin(newrelic_transxtion_id,
                                                 NEWRELIC_ROOT_SEGMENT,
@@ -188,7 +219,7 @@ newrelic_perf_counters_wrapper(int program_argc, char * program_argv[])
         }
     }
 
-    struct stat buf;
+goto_point_delete_temp_perf_data_file:
     if (stat(temp_perf_data_file, &buf) == 0) {
        // There could be a race condition with another program that does
        // a `perf` command on this same "perf.data" temp file, or a newer one.
@@ -241,6 +272,8 @@ create_a_temp_filename(char * out_new_temp_fname)
       */
      int i;
      for (i=0; i<10; i++) {
+         if (interrupt_execution != 0) return 0;
+
          long a_rand_number;
          lrand48_r(&random_state, &a_rand_number);
          snprintf(out_new_temp_fname, PATH_MAX,
@@ -260,18 +293,19 @@ execute_perf_record_and_program(int in_program_argc, char * in_program_argv[],
                                 char * out_perf_data_file)
 {
     int status;
-    char ** new_argv;
-    new_argv = calloc(in_program_argc+4, sizeof (char *));
-    if (!new_argv) {
-        perror("calloc");
-        return -1;
-    }
-
     status = create_a_temp_filename(out_perf_data_file);
     if (status == 0) {
         fprintf(stderr,
                 "ERROR: couldn't find a temp filename for perf.data file\n");
         return -2;
+    }
+
+    /* Prepare the new options and arguments to call "perf record ..." */
+    char ** new_argv;
+    new_argv = calloc(in_program_argc+4, sizeof (char *));
+    if (!new_argv) {
+        perror("calloc");
+        return -1;
     }
 
     /* Build the new argv[] to call `perf record <in_program_argv[]> */
@@ -319,6 +353,11 @@ execute_perf_record_and_program(int in_program_argc, char * in_program_argv[],
     struct timespec start_time, end_time;
     clock_gettime(CLOCK_REALTIME, &start_time);
 
+    if (interrupt_execution != 0) {
+        free(new_argv);
+        return -1;
+    }
+
     int forked_pid;
     forked_pid = fork();
     if (forked_pid == 0) {
@@ -330,6 +369,11 @@ execute_perf_record_and_program(int in_program_argc, char * in_program_argv[],
         wait(&status);
     } else {
         perror("fork");
+        free(new_argv);
+        return -1;
+    }
+
+    if (interrupt_execution != 0) {
         free(new_argv);
         return -1;
     }
@@ -358,6 +402,8 @@ upload_perf_report_to_NewRelic(char * in_perf_data_fname,
     snprintf(perf_report_cmd, sizeof perf_report_cmd,
              "perf report --input=%s", in_perf_data_fname);
 
+    if (interrupt_execution != 0) return -1;
+
     perf_report_pipe = popen(perf_report_cmd, "r");
     if (!perf_report_pipe) {
         perror("popen");
@@ -372,7 +418,8 @@ upload_perf_report_to_NewRelic(char * in_perf_data_fname,
     char * buff_line = NULL;
     size_t buff_len = 0;
 
-    while (getline(&buff_line, &buff_len, perf_report_pipe) != -1) {
+    while (interrupt_execution == 0 &&
+           getline(&buff_line, &buff_len, perf_report_pipe) != -1) {
          if (!buff_line || buff_line[0] == '\0' ||
              buff_line[0] == '\n' || buff_line[0] == '#') /* '#' is a comment */
              continue;
