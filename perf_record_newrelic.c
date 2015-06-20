@@ -99,9 +99,27 @@ volatile sig_atomic_t interrupt_execution = 0;
 
 void signal_handler(int sig)
 {
+    if (interrupt_execution == 0) {
+        /* This is the first time that the signal was caught */
+        /* It is very probable that the embedded-mode NewRelic installed a
+         * signal-handler for INT, because although NR is closed-source so
+         * it is very difficult to say, it uses log4cplus for logging, that
+         * is with signals: see log4cplus's warning in "README.md" and also
+         * log4cplus's "src/threads.cxx" file
+         */
+        /* be careful with the fake signal-handlers in bits/signum.h,
+         * because we don't know what handler existed previously */
+        switch ((long)newrelic_agent_sighandler) {
+           case (long)SIG_ERR:   /* fake signal-handlers in bits/signum.h */
+           case (long)SIG_DFL:
+           case (long)SIG_IGN:
+              break;
+           default:
+              ;
+              raise(sig);   /* let New Relic see this signal, if it does */
+        }
+    }
     interrupt_execution = 1;
-    if (newrelic_agent_sighandler)
-        (*newrelic_agent_sighandler)(sig);
 }
 
 
@@ -185,8 +203,11 @@ newrelic_perf_counters_wrapper(int program_argc, char * program_argv[])
                                                         &program_exec_duration,
                                                         temp_perf_data_file);
 
+    /* Try to respect calling newrelic_segment_end() before interruption */
+    /*
     if (interrupt_execution != 0)
         goto goto_point_delete_temp_perf_data_file;
+    */
 
     /* end this NewRelic segment */
     if (newr_segm_external_perf_record >= 0) {
@@ -196,6 +217,10 @@ newrelic_perf_counters_wrapper(int program_argc, char * program_argv[])
             fprintf(stderr, "ERROR: newrelic_segment_end() returned %d\n",
                     ret_code);
     }
+
+    /* We respected calling newrelic_segment_end(), so we can interrupt now */
+    if (interrupt_execution != 0)
+        goto goto_point_delete_temp_perf_data_file;
 
     if (interrupt_execution == 0 && program_exit_code >= 0) {
         long newr_segm_external_perf_report =
