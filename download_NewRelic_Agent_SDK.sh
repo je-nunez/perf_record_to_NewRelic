@@ -49,21 +49,24 @@ echo -e "\n$BUILD_DIR is ready.\n"
 
 # Checking known-issues in the NewRelic Agent SDK tar-ball
 
-echo "Checking known-issues in the NewRelic Agent SDK tar-ball..."
-echo "Checking New Relic shared libraries..."
+echo -e "Checking known-issues in the NewRelic Agent SDK tar-ball...\n"
+echo -e "Checking New Relic shared libraries...\n"
 cd   $(pwd)/nr_agent_sdk_base_dir/lib/
 
 for so_lib in libcrypto.so libssl.so
 do
-    ldd libnewrelic-collector-client.so | grep -qsi "${so_lib}.*not.found"
-    if [[ $? -ne 0 ]]; then
+    ldd libnewrelic-collector-client.so | grep -qsi "${so_lib}.* not found"
+    if [[ $? -eq 0 ]]; then
+       required_so_symlink=$( ldd libnewrelic-collector-client.so | \
+                              grep -i "${so_lib}.* not found" | \
+                              awk '{ print $1 }' )
        echo "WARNING: In the library `pwd`/libnewrelic-collector-client.so"
-       echo "The required component ${so_lib} is not found in this system by that name."
-       echo "Please create a symbolic link with the name of ${so_lib} so that the dynamic linker can find it."
-       echo "or use the 'ldconfig' utility."
+       echo "The required component '${required_so_symlink}' is not found in this system by that name."
+       echo "Please create a symbolic link with the name of '${required_so_symlink}'"
+       echo -e "so that the dynamic linker can find it, or use the 'ldconfig' utility.\n"
     fi
 done
-echo "Checking New Relic shared libraries done."
+echo -e "\nChecking New Relic shared libraries done."
 
 
 # Last step
