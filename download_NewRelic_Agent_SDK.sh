@@ -47,6 +47,25 @@ ln  -sf  "$nr_agent_base_directory"   $(pwd)/nr_agent_sdk_base_dir
 
 echo -e "\n$BUILD_DIR is ready.\n"
 
+# Checking known-issues in the NewRelic Agent SDK tar-ball
+
+echo "Checking known-issues in the NewRelic Agent SDK tar-ball..."
+echo "Checking New Relic shared libraries..."
+cd   $(pwd)/nr_agent_sdk_base_dir/lib/
+
+for so_lib in libcrypto.so libssl.so
+do
+    ldd libnewrelic-collector-client.so | grep -qsi "${so_lib}.*not.found"
+    if [[ $? -ne 0 ]]; then
+       echo "WARNING: In the library `pwd`/libnewrelic-collector-client.so"
+       echo "The required component ${so_lib} is not found in this system by that name."
+       echo "Please create a symbolic link with the name of ${so_lib} so that the dynamic linker can find it."
+       echo "or use the 'ldconfig' utility."
+    fi
+done
+echo "Checking New Relic shared libraries done."
+
+
 # Last step
 # Prepare the ~/.newrelic/log4plus.properties files
 
