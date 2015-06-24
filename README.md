@@ -1,4 +1,4 @@
-# perf_record_NewRelic_wrapper
+# perf_record_to_NewRelic
 
 A Linux Performance Counters to NewRelic wrapper in C, using `perf record` and `perf report` to rely to the NewRelic via its Agent SDK (embedded mode).
 
