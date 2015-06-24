@@ -390,7 +390,6 @@ execute_perf_record_and_program(int in_program_argc, char * in_program_argv[],
         execvp("perf", new_argv);
     } else if (forked_pid > 0) {
         /* parent process */
-        free(new_argv);
         wait(&status);
     } else {
         perror("fork");
@@ -398,10 +397,9 @@ execute_perf_record_and_program(int in_program_argc, char * in_program_argv[],
         return -1;
     }
 
-    if (interrupt_execution != 0) {
-        free(new_argv);
+    free(new_argv);
+    if (interrupt_execution != 0)
         return -1;
-    }
 
     clock_gettime(CLOCK_REALTIME, &end_time);
 

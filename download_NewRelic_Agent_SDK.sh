@@ -1,5 +1,12 @@
 #!/bin/bash
 
+# This script is able to parse the download page of the
+# New Relic Agent SDK for C/C++:
+#
+#     http://download.newrelic.com/agent_sdk/
+#
+# at least till Jun-23-2015
+
 BUILD_DIR="$HOME/src/newrelic_agent_sdk_installation/"
 
 if [[ ! -d "$BUILD_DIR" ]]; then
@@ -7,7 +14,7 @@ if [[ ! -d "$BUILD_DIR" ]]; then
 fi
 
 url_path=$( curl  http://download.newrelic.com/agent_sdk/ | \
-            egrep -i -e '\.tar\.gz' -e '\.tgz' | \
+            egrep -i -e '\.tar\.gz' -e '\.tgz' | tail -n 1 | \
             sed 's/^.*href="//; s/".*//' )
 
 echo -e "Downloading http://download.newrelic.com/agent_sdk/$url_path\n"
