@@ -49,6 +49,71 @@
 #include "newrelic_collector_client.h"
 
 
+/* The maximum length of a New Relic identifier.
+ *
+ * In:
+ *
+ *  https://docs.newrelic.com/docs/agents/php-agent/configuration/php-agent-api
+ *
+ * it is mentioned:
+ *
+ *  newrelic_record_custom_event:
+ *   ...
+ *   The attributes parameter is expected to be an associative array: the keys
+ *   should be the attribute names (which may be up to 255 characters in length)
+ *   ...
+ *
+ * so we limit our custom attributes also to be at most 255 chars in length
+ */
+
+const int MAX_LENGTH_NEW_RELIC_IDENT = 255;
+
+/*
+ * On this issue of the custom attributes, that New Relic documentation above:
+ *
+ *  https://docs.newrelic.com/docs/agents/php-agent/configuration/php-agent-api
+ *
+ * also mentions on the NAMING CONVENTIONS for your custom attributes:
+ *
+ *  function newrelic_custom_metric (...)
+ *
+ *    ... Your custom metrics can then be used in custom dashboards and custom
+ *    views in the New Relic user interface. Name your custom metrics with a
+ *    Custom/ prefix (for example, Custom/MyMetric). This will make them easily
+ *    usable in custom dashboards...
+ *
+ *    Note: Avoid creating too many unique custom metric names. New Relic limits
+ *    the total number of custom metrics you can use (not the total you can
+ *    report for each of these custom metrics). Exceeding more than 2000 unique
+ *    custom metric names can cause automatic clamps that will affect other
+ *    data.
+ *
+ * We follow the first paragraph on prefixing with "Custom/" our attributes, but
+ * not the second of the "Note:", of not submitting more that 2000 unique custom
+ * metric names, because we don't use the API call:
+ *
+ *           newrelic_record_metric()
+ * but:
+ *           newrelic_transaction_add_attribute()
+ *
+ * Also, on the NAMING CONVENTIONS for your custom attributes (URL below exceeds
+ * 80 columns):
+ *
+ *  https://docs.newrelic.com/docs/insights/new-relic-insights/decorating-events/insights-custom-attributes#keywords
+ *
+ * it lists some reserved words that New Relic understands, which should not be
+ * used as attribute names:
+ *
+ *     The following words are used by NRQL and by Insights. Avoid using
+ *     them as names for attributes. Otherwise the results may not be
+ *     what was expected.
+ *      .... [List of reserved words by New Relic] ....
+ *
+ * we add the preffix "ct_" to our attribute names to avouid any accidental
+ * conflict with New Relic of some identifier returned by the Linux Performance
+ * Counters.
+ */
+
 int
 usage_and_exit(void);
 
@@ -168,7 +233,7 @@ newrelic_perf_counters_wrapper(int program_argc, char * program_argv[])
                (unsigned)time(NULL));
 
     return_code = newrelic_transaction_add_attribute(newrelic_transxtion_id,
-                                           "tx_start_time", start_time);
+                                           "ct_tx_start_time", start_time);
 
     newr_segm_external_perf_record =
            newrelic_segment_external_begin(newrelic_transxtion_id,
@@ -457,10 +522,10 @@ upload_perf_report_to_NewRelic(char * in_perf_data_fname,
                            &so_object, &symbol);
          // fprintf(stderr, "DEBUG: %f %s %s\n", percent, symbol, so_object);
 
-         char newrelic_attrib_from_perf_record[1024];
+         char newrelic_attrib_from_perf_record[MAX_LENGTH_NEW_RELIC_IDENT+1];
          snprintf(newrelic_attrib_from_perf_record,
                   sizeof newrelic_attrib_from_perf_record,
-                  "%s@%s", symbol, so_object);
+                  "Custom/ct_%s@%s", symbol, so_object);
 
          double relative_duration;
          relative_duration = (percent/100) * total_progr_duration;
