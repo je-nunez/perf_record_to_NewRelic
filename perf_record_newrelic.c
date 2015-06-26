@@ -189,6 +189,22 @@ void signal_handler(int sig)
 
 
 void
+send_error_notice_to_NewRelic(long transaction_id, const char *exception_type,
+                              const char *error_message)
+{
+    fprintf(stderr, "ERROR: %s: %s\n", exception_type, error_message);
+
+    int err_code;
+    err_code = newrelic_transaction_notice_error(transaction_id, exception_type,
+                                                 error_message, "", "");
+    if (err_code != 0)
+        fprintf(stderr, "ERROR: Couldn't send error message to New Relic: "
+                        "returned error %d\n", err_code);
+}
+
+
+
+void
 newrelic_perf_counters_wrapper(int program_argc, char * program_argv[])
 {
     int return_code;
@@ -287,6 +303,27 @@ newrelic_perf_counters_wrapper(int program_argc, char * program_argv[])
     if (interrupt_execution != 0)
         goto goto_point_delete_temp_perf_data_file;
 
+    if (program_exit_code < 0 && program_exit_code >= -4) {
+        /* An error was caught in execute_perf_record_and_program()
+         *
+         * Note that program_exit_code is between -4 and -1 only
+         * that are the error codes we pre-check.
+         */
+        const char *errors_in_execute_perf_record[] = {
+                            "0",
+                            "Couldn't find a temp filename for perf.data file",
+                            "calloc() failed",
+                            "Interrupted by a signal",
+                            "fork() failed"
+             };
+        send_error_notice_to_NewRelic(newrelic_transxtion_id,
+                                      "execute_perf_record_and_program",
+                                      errors_in_execute_perf_record[
+                                                         abs(program_exit_code)
+                                                      ]);
+        goto goto_point_delete_temp_perf_data_file;
+    }
+
     if (interrupt_execution == 0 && program_exit_code >= 0) {
         long newr_segm_external_perf_report =
                 newrelic_segment_external_begin(newrelic_transxtion_id,
@@ -322,9 +359,13 @@ goto_point_delete_temp_perf_data_file:
        if (current_time - buf.st_mtime < 30) {
            // "perf.data" was modified less than 30 seconds ago: it's ours
            return_code = unlink(temp_perf_data_file);
-           if (return_code != 0)
-               fprintf(stderr, "ERROR: unlink(%s) failed: error code: %d\n",
-                       temp_perf_data_file, return_code);
+           if (return_code != 0) {
+               char err_msg[256];
+               strerror_r(errno, err_msg, sizeof err_msg);
+               send_error_notice_to_NewRelic(newrelic_transxtion_id,
+                                             "unlink_temp_perf_data_file",
+                                             err_msg);
+           }
        }
     }
 
@@ -384,19 +425,14 @@ execute_perf_record_and_program(int in_program_argc, char * in_program_argv[],
 {
     int status;
     status = create_a_temp_filename(out_perf_data_file);
-    if (status == 0) {
-        fprintf(stderr,
-                "ERROR: couldn't find a temp filename for perf.data file\n");
-        return -2;
-    }
+    if (status == 0)
+        return -1;
 
     /* Prepare the new options and arguments to call "perf record ..." */
     char ** new_argv;
     new_argv = calloc(in_program_argc+4, sizeof (char *));
-    if (!new_argv) {
-        perror("calloc");
-        return -1;
-    }
+    if (!new_argv)
+        return -2;
 
     /* Build the new argv[] to call `perf record <in_program_argv[]> */
     new_argv[0] = "perf";
@@ -445,7 +481,7 @@ execute_perf_record_and_program(int in_program_argc, char * in_program_argv[],
 
     if (interrupt_execution != 0) {
         free(new_argv);
-        return -1;
+        return -3;
     }
 
     int forked_pid;
@@ -457,14 +493,13 @@ execute_perf_record_and_program(int in_program_argc, char * in_program_argv[],
         /* parent process */
         wait(&status);
     } else {
-        perror("fork");
         free(new_argv);
-        return -1;
+        return -4;
     }
 
     free(new_argv);
     if (interrupt_execution != 0)
-        return -1;
+        return -3;
 
     clock_gettime(CLOCK_REALTIME, &end_time);
 
@@ -494,7 +529,10 @@ upload_perf_report_to_NewRelic(char * in_perf_data_fname,
 
     perf_report_pipe = popen(perf_report_cmd, "r");
     if (!perf_report_pipe) {
-        perror("popen");
+        char err_msg[256];
+        strerror_r(errno, err_msg, sizeof err_msg);
+        send_error_notice_to_NewRelic(newrelic_transaction,
+                                      "popen_perf_report", err_msg);
         return -1;
     }
 
@@ -572,7 +610,11 @@ upload_perf_report_to_NewRelic(char * in_perf_data_fname,
 
     int ret = pclose(perf_report_pipe);
     if (ret < 0) {
-        perror("pclose");
+        char err_msg[256];
+        strerror_r(errno, err_msg, sizeof err_msg);
+        send_error_notice_to_NewRelic(newrelic_transaction,
+                                      "pclose_perf_report", err_msg);
+        return -2;
     }
 
     return 0;
