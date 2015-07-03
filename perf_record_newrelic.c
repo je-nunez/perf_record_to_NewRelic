@@ -27,9 +27,10 @@
  *       perf.data file, but the system-call perf_counter_open() directly to
  *       NewRelic.
  *
- * Bugs: many.
+ * Very first version from Linux Performance Counters to New Relic
  *
  * Jose E. Nunez, 2015
+ *
  */
 
 #include <errno.h>
@@ -47,6 +48,80 @@
 #include "newrelic_common.h"
 #include "newrelic_transaction.h"
 #include "newrelic_collector_client.h"
+
+
+int
+usage_and_exit(void);
+
+
+void
+newrelic_perf_counters_wrapper(int program_argc, char * program_argv[]);
+
+
+int
+execute_perf_record_and_program(int in_program_argc, char * in_program_argv[],
+                                struct timespec * out_duration,
+                                char * out_perf_data_file);
+
+
+int
+upload_perf_report_to_NewRelic(char * in_perf_data_fname,
+                               const struct timespec * prog_exec_duration,
+                               long newrelic_transaction);
+
+
+/*
+ * The general idea of this C program is this flow:
+ *
+ *     main(...)
+ *             does some processing of the command-line and
+ *                   might call usage_and_exit()
+ *             set-ups New Relic
+ *             calls newrelic_perf_counters_wrapper(...) passing it the
+ *                   remainding cmd-line arguments for it to call 'perf-record'
+ *
+ *
+ *    newrelic_perf_counters_wrapper(int program_argc, char * program_argv[])
+ *             tries to create a New Relic transaction and some attributes
+ *             creates a New Relic segment inside that transaction
+ *             sets-up a SIGINT signal handler, because the 'perf record' will
+ *                   be returning a temporary file for the perf.data file,
+ *                   that needs to be deleted even if a SIGINT signal happens
+ *             calls execute_perf_record_and_program(...), which calls 
+ *                   'perf record' and returns to us the temporary 'perf.data'
+ *                   file created, and the total time taken by the program
+ *             closes the first New Relic segment and creates a new one
+ *             calls upload_perf_report_to_NewRelic(...), which calls
+ *                   'perf report' and uploads to New Relic a report per-time
+ *                   of each symbol that appears in that 'perf report' output
+ *             closes the second New Relic segment
+ *             deletes the temporary 'perf.data' file
+ *
+ *
+ *    execute_perf_record_and_program(...)
+ *             tries to get the name of a new temporary file using
+ *                   create_a_temp_filename()
+ *             tries to sanitize some cmd-line arguments to be passed to 
+ *                   'perf record', in particular the '-o a_perf.data' file to
+ *                   use instead the temporary file found in the first step
+ *             gets the start-time
+ *             forks a 'perf record' subprocess with its cmd-line options and
+ *                   the '-o our_temporary_perf.data' and the program to measure
+ *             gets the end-time and duration of the invocation
+ *             
+ *             
+ *    upload_perf_report_to_NewRelic(...)
+ *             opens a read pipe to 'perf report --input=our_temporary_perf.data'
+ *             parses each line given to us by 'perf report' into 'symbol', '%time',
+ *                   etc.
+ *                   from the '%time' of the 'symbol' and the total duration of the
+ *                        program, tries to find the relative duration of the 'symbol'
+ *                   sends this 'symbol' and its 'relative duration' to New Relic
+ *             close the read pipe to 'perf record'
+ *
+ *  There is more error-checking around those instructions, that is the general idea
+ *  of the program.
+ */
 
 
 /* The maximum length of a New Relic identifier.
@@ -113,25 +188,6 @@ const int MAX_LENGTH_NEW_RELIC_IDENT = 255;
  * conflict with New Relic of some identifier returned by the Linux Performance
  * Counters.
  */
-
-int
-usage_and_exit(void);
-
-
-void
-newrelic_perf_counters_wrapper(int program_argc, char * program_argv[]);
-
-
-int
-execute_perf_record_and_program(int in_program_argc, char * in_program_argv[],
-                                struct timespec * out_duration,
-                                char * out_perf_data_file);
-
-
-int
-upload_perf_report_to_NewRelic(char * in_perf_data_fname,
-                               const struct timespec * prog_exec_duration,
-                               long newrelic_transaction);
 
 
 int
@@ -373,8 +429,8 @@ goto_point_delete_temp_perf_data_file:
     fprintf(stderr, "DEBUG: about to call newrelic_transaction_end()\n");
     return_code = newrelic_transaction_end(newrelic_transxtion_id);
     if (return_code < 0)
-    fprintf(stderr, "ERROR: newrelic_transaction_end() "
-                    "returned %d\n", return_code);
+        fprintf(stderr, "ERROR: newrelic_transaction_end() "
+                        "returned %d\n", return_code);
 }
 
 
